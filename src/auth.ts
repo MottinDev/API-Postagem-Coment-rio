@@ -1,66 +1,45 @@
 import express, { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { initDatabase } from './database';
+import User from './userModel';
+import dotenv from 'dotenv';
 
-const router = express.Router();
-const SECRET_KEY = 'sua_chave_secreta';
+dotenv.config();
 
-router.post('/register', async (req: Request, res: Response) => {
-    const { name, cpf, email, password, role } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const db = await initDatabase();
-  
-    try {
-      await db.run(
-        `INSERT INTO users (name, cpf, email, password, role) VALUES (?, ?, ?, ?, ?)`,
-        [name, cpf, email, hashedPassword, role || 'user']
-      );
-      res.status(201).json({ message: 'Usuário registrado com sucesso' });
-    } catch (error) {
-      res.status(400).json({ error: 'Usuário já existe' });
-    }
-  });
-  
-  router.post('/login', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    const db = await initDatabase();
-    const user = await db.get(`SELECT * FROM users WHERE email = ?`, [email]);
-  
+const authRoutes = express.Router();
+const SECRET_KEY = process.env.SECRET_KEY as string;
+
+// Registrar um novo usuário
+authRoutes.post('/register', async (req: Request, res: Response) => {
+  const { name, cpf, email, password } = req.body;
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  try {
+    const newUser = new User({ name, cpf, email, password: hashedPassword });
+    await newUser.save();
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (error) {
+    res.status(400).json({ error: 'User already exists' });
+  }
+});
+
+// Login de um usuário
+authRoutes.post('/login', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
     if (user && (await bcrypt.compare(password, user.password))) {
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, SECRET_KEY, {
-        expiresIn: '15m',
+      const token = jwt.sign({ id: user._id, email: user.email }, SECRET_KEY, {
+        expiresIn: '1h',
       });
-      const refreshToken = jwt.sign({ id: user.id }, SECRET_KEY, { expiresIn: '7d' });
-  
-      await db.run(`INSERT INTO refresh_tokens (userId, token) VALUES (?, ?)`, [user.id, refreshToken]);
-      res.json({ token, refreshToken });
+      res.json({ token });
     } else {
-      res.status(401).json({ error: 'Credenciais inválidas' });
+      res.status(401).json({ error: 'Invalid credentials' });
     }
-  });
-  
-  router.post('/refresh', async (req: Request, res: Response) => {
-    const { refreshToken } = req.body;
-    const db = await initDatabase();
-  
-    if (!refreshToken) {
-      return res.status(401).json({ error: 'Token de atualização não fornecido' });
-    }
-  
-    const tokenRecord = await db.get(`SELECT * FROM refresh_tokens WHERE token = ?`, [refreshToken]);
-    if (!tokenRecord) {
-      return res.status(403).json({ error: 'Token de atualização inválido' });
-    }
-  
-    jwt.verify(refreshToken, SECRET_KEY, (err : any, decoded : any) => {
-      if (err) {
-        return res.status(403).json({ error: 'Token de atualização expirado' });
-      }
-      const accessToken = jwt.sign({ id: decoded.id }, SECRET_KEY, { expiresIn: '15m' });
-      res.json({ token: accessToken });
-    });
-  });
-  
-  export default router;
-  
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default authRoutes;

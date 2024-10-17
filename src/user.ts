@@ -1,15 +1,16 @@
 import express, { Request, Response } from 'express';
 import { authMiddleware } from './middleware/authMiddleware';
-import { roleMiddleware } from './middleware/roleMiddleware';
+import User from './userModel';
 
-const router = express.Router();
+const userRoutes = express.Router();
 
-router.get('/profile', authMiddleware, roleMiddleware(['admin', 'user']), (req: Request, res: Response) => {
-  res.json({ message: 'Seu perfil', user: req.user });
+userRoutes.get('/profile', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById((req.user as any).id);
+    res.json({ message: 'Welcome to your profile', user });
+  } catch (error) {
+    res.status(500).json({ error: 'User not found' });
+  }
 });
 
-router.get('/admin', authMiddleware, roleMiddleware(['admin']), (req: Request, res: Response) => {
-  res.json({ message: 'Conteúdo exclusivo para administradores', user: req.user });
-});
-
-export default router;
+export default userRoutes;
